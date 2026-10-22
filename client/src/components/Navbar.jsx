@@ -6,8 +6,8 @@ import TrackOrderIndicator from './TrackOrderIndicator.jsx';
 
 const navItems = [
   { id: 'home', label: 'Home', href: '/', section: null },
-  { id: 'menu', label: 'Menu', href: '/#menu', section: 'menu' },
-  { id: 'categories', label: 'Categories', href: '/#categories', section: 'categories' },
+  { id: 'menu', label: 'Menu', href: '/menu', section: 'menu' },
+  { id: 'categories', label: 'Categories', href: '/menu#categories', section: 'categories' },
   { id: 'deals', label: 'Deals', href: '/#featured', section: 'featured' },
   { id: 'about', label: 'About', href: '/#story', section: 'story' },
   { id: 'contact', label: 'Contact', href: '/#contact', section: 'contact' },
@@ -29,13 +29,13 @@ export default function Navbar() {
   const [activeNav, setActiveNav] = useState(location.pathname === '/' ? 'home' : '');
 
   useEffect(() => {
-    if (location.pathname !== '/') {
+    if (!['/', '/menu'].includes(location.pathname)) {
       setActiveNav('');
       return undefined;
     }
 
     const sectionForHash = navItems.find((item) => item.section === location.hash.slice(1));
-    setActiveNav(sectionForHash?.id || 'home');
+    setActiveNav(sectionForHash?.id || (location.pathname === '/menu' ? 'menu' : 'home'));
 
     if (sectionForHash) {
       window.requestAnimationFrame(() => scrollToSection(sectionForHash.section, location.key === 'default' ? 'auto' : 'smooth'));
@@ -64,7 +64,7 @@ export default function Navbar() {
           })
           .filter((section) => section !== null)
           .sort((first, second) => first.top - second.top)
-          .reduce((active, section) => section.top <= headerOffset ? section.id : active, 'home');
+          .reduce((active, section) => section.top <= headerOffset ? section.id : active, location.pathname === '/menu' ? 'menu' : 'home');
         setActiveNav(currentSection);
       });
     };

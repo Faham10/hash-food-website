@@ -47,6 +47,82 @@ test.after(async()=>{
   for(const file of [dbPath,productionDbPath])for(const suffix of ['','-shm','-wal']){try{fs.unlinkSync(file+suffix);}catch{}}
 });
 
+test('public SEO endpoints and storefront routes',async()=>{
+  const robotsResponse=await fetch(`${base}/robots.txt`);
+  assert.equal(robotsResponse.status,200);
+  assert.match(robotsResponse.headers.get('content-type'),/text\/plain/);
+  const robots=await robotsResponse.text();
+  assert.match(robots,/User-agent: \*/);
+  assert.match(robots,/Allow: \//);
+  assert.match(robots,/Disallow: \/api\//);
+  assert.match(robots,/Sitemap: https:\/\/hash-food-website\.onrender\.com\/sitemap\.xml/);
+
+  const menu=await (await fetch(`${base}/api/menu`)).json();
+  assert.ok(menu.length>=5);
+  assert.ok(menu.every(item=>Number.isInteger(item.categoryId)));
+  const product=menu[0];
+  const category=menu.find(item=>item.categoryId===product.categoryId);
+  const productUrl=`/product/${product.id}/${product.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}`;
+  const categorySlug=category.category.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  const categoryUrl=`/menu/category/${category.categoryId}/${categorySlug}`;
+  const sitemapResponse=await fetch(`${base}/sitemap.xml`);
+  assert.equal(sitemapResponse.status,200);
+  assert.match(sitemapResponse.headers.get('content-type'),/application\/xml/);
+  const sitemap=await sitemapResponse.text();
+  assert.match(sitemap,/^<\?xml version="1\.0" encoding="UTF-8"\?>/);
+  assert.match(sitemap,/<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+  const sitemapLocations=[...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map(match=>match[1]);
+  assert.equal(new Set(sitemapLocations).size,sitemapLocations.length);
+  assert.ok(sitemapLocations.includes('https://hash-food-website.onrender.com/'));
+  assert.ok(sitemapLocations.includes('https://hash-food-website.onrender.com/menu'));
+  assert.ok(sitemapLocations.includes(`https://hash-food-website.onrender.com${categoryUrl}`));
+  assert.ok(sitemapLocations.includes(`https://hash-food-website.onrender.com${productUrl}`));
+  assert.doesNotMatch(sitemap,/\/(?:admin|checkout|track|cart)(?:\/|<)/i);
+  assert.equal(sitemapLocations.filter(url=>url.includes('/product/')).length,menu.length);
+
+  for(const [route,canonical,title] of [
+    ['/', 'https://hash-food-website.onrender.com/', 'Hash Food | Karachi'],
+    ['/menu', 'https://hash-food-website.onrender.com/menu', 'Hash Food Menu |'],
+    [categoryUrl, `https://hash-food-website.onrender.com${categoryUrl}`, `${category.category} Menu |`],
+    [productUrl, `https://hash-food-website.onrender.com${productUrl}`, `${product.name} | Hash Food`],
+  ]){
+    const response=await fetch(`${base}${route}`);
+    assert.equal(response.status,200,`${route} direct navigation`);
+    const html=await response.text();
+    assert.match(response.headers.get('content-type'),/text\/html/);
+    assert.match(html,new RegExp(`<link rel="canonical" href="${canonical.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}">`));
+    assert.match(html,new RegExp(`<title>${title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`));
+    assert.match(html,/property="og:title"/);
+    assert.match(html,/name="twitter:card" content="summary_large_image"/);
+    assert.match(html,/name="description" content="[^"]+"/);
+  }
+
+  const productHtml=await (await fetch(`${base}${productUrl}`)).text();
+  assert.match(productHtml,/application\/ld\+json/);
+  assert.match(productHtml,/"@type":"Product"/);
+  assert.match(productHtml,/"priceCurrency":"PKR"/);
+  assert.match(productHtml,new RegExp(`"price":${product.price}`));
+  const productRedirect=await fetch(`${base}/product/${product.id}/old-name`,{redirect:'manual'});
+  assert.equal(productRedirect.status,301);
+  assert.equal(productRedirect.headers.get('location'),productUrl);
+  const categoryRedirect=await fetch(`${base}/menu/category/${category.categoryId}/old-name`,{redirect:'manual'});
+  assert.equal(categoryRedirect.status,301);
+  assert.equal(categoryRedirect.headers.get('location'),categoryUrl);
+  for(const [route,canonical] of [['/menu/','/menu'],['/admin/','/admin'],['/admin/login/','/admin/login'],['/checkout/','/checkout'],['/track/','/track']]){
+    const response=await fetch(`${base}${route}`,{redirect:'manual'});
+    assert.equal(response.status,301,`${route} normalization`);
+    assert.equal(response.headers.get('location'),canonical);
+  }
+
+  for(const privateRoute of ['/checkout','/track','/track/PRIVATE-ORDER','/admin','/admin/login']){
+    const response=await fetch(`${base}${privateRoute}`);
+    assert.equal(response.status,200,`${privateRoute} direct navigation`);
+    assert.equal(response.headers.get('x-robots-tag'),'noindex, nofollow');
+    assert.match(await response.text(),/name="robots" content="noindex,nofollow"/);
+  }
+  assert.equal((await fetch(`${base}/not-a-real-page`)).status,404);
+});
+
 test('customer order and protected admin lifecycle',async()=>{
   assert.equal((await fetch(`${base}/api/health`)).status,200);
   const menu=await (await fetch(`${base}/api/menu`)).json();

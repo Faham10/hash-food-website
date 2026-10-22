@@ -14,6 +14,7 @@ const Database = require('better-sqlite3');
 const PORT = Number(process.env.PORT) || 3002;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const HOST = process.env.HOST || (IS_PRODUCTION ? '0.0.0.0' : '127.0.0.1');
+const SITE_ORIGIN = 'https://hash-food-website.onrender.com';
 const hasAdminUsername = Boolean(process.env.ADMIN_USERNAME);
 const hasAdminPassword = Boolean(process.env.ADMIN_PASSWORD);
 if (hasAdminUsername !== hasAdminPassword) throw new Error('Set both ADMIN_USERNAME and ADMIN_PASSWORD, or neither for local development');
@@ -236,7 +237,11 @@ function requireAdmin(req,res,next){
 function menuPayload(row){return {...row,popular:Boolean(row.popular),active:Boolean(row.active)};}
 
 app.get('/api/health',(req,res)=>res.json({ok:true}));
-app.get('/api/menu',(req,res)=>res.json(db.prepare('SELECT id,name,category,description,price,image,popular,active FROM menu_items WHERE active=1 ORDER BY id').all().map(menuPayload)));
+app.get('/api/menu',(req,res)=>res.json(db.prepare(`
+  SELECT m.id,m.name,m.category,c.id AS categoryId,m.description,m.price,m.image,m.popular,m.active
+  FROM menu_items m LEFT JOIN menu_categories c ON c.name=m.category COLLATE NOCASE
+  WHERE m.active=1 ORDER BY m.id
+`).all().map(menuPayload)));
 app.get('/api/settings',(req,res)=>res.json(publicSettings()));
 
 app.post('/api/admin/login',loginLimit,sameOrigin,(req,res)=>{
@@ -376,7 +381,151 @@ app.delete('/api/admin/menu/:id/permanent',sameOrigin,requireAdmin,(req,res)=>{
 app.put('/api/admin/settings',sameOrigin,requireAdmin,(req,res)=>{const allowed=['name','phone','address','opening','closing','acceptOrders','deliveryAvailable'];const upsert=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');db.transaction(()=>allowed.forEach(k=>{if(req.body?.[k]!==undefined)upsert.run(k,clean(String(req.body[k]),300));}))();res.json({ok:true,settings:publicSettings()});});
 
 const CLIENT_DIST = path.join(__dirname, 'client', 'dist');
+const htmlEscape = value => String(value).replace(/[&<>"']/g, character => ({
+  '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+}[character]));
+const xmlEscape = value => String(value).replace(/[<>&'"]/g, character => ({
+  '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'
+}[character]));
+const slugify = value => String(value)
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g,'')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g,'-')
+  .replace(/^-|-$/g,'') || 'item';
+
+function sendSeoPage(req,res,{title,description,pathname,robots='index,follow',image,ogType='website',product}){
+  const indexPath=path.join(CLIENT_DIST,'index.html');
+  if(!fs.existsSync(indexPath))return res.status(503).type('text/plain').send('Frontend build unavailable');
+  const canonical=`${SITE_ORIGIN}${pathname}`;
+  const socialImage=image||`${SITE_ORIGIN}/hash-food-icon.svg`;
+  const socialTags=[
+    `<link rel="canonical" href="${htmlEscape(canonical)}">`,
+    `<meta name="robots" content="${htmlEscape(robots)}">`,
+    `<meta property="og:type" content="${htmlEscape(ogType)}">`,
+    `<meta property="og:title" content="${htmlEscape(title)}">`,
+    `<meta property="og:description" content="${htmlEscape(description)}">`,
+    `<meta property="og:url" content="${htmlEscape(canonical)}">`,
+    `<meta property="og:image" content="${htmlEscape(socialImage)}">`,
+    `<meta property="og:image:alt" content="${htmlEscape(title)}">`,
+    '<meta name="twitter:card" content="summary_large_image">',
+    `<meta name="twitter:title" content="${htmlEscape(title)}">`,
+    `<meta name="twitter:description" content="${htmlEscape(description)}">`,
+    `<meta name="twitter:image" content="${htmlEscape(socialImage)}">`,
+  ];
+  if(product){
+    const structuredData={
+      '@context':'https://schema.org',
+      '@type':'Product',
+      name:product.name,
+      description:product.description,
+      image:product.image,
+      category:product.category,
+      offers:{
+        '@type':'Offer',
+        priceCurrency:'PKR',
+        price:product.price,
+        url:canonical,
+      },
+    };
+    socialTags.push(`<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g,'\\u003c')}</script>`);
+    socialTags.push(`<meta property="product:price:amount" content="${htmlEscape(product.price)}">`);
+    socialTags.push('<meta property="product:price:currency" content="PKR">');
+  }
+  let html=fs.readFileSync(indexPath,'utf8')
+    .replace(/<title>[\s\S]*?<\/title>/i,`<title>${htmlEscape(title)}</title>`)
+    .replace(/<meta\s+name=["']description["'][^>]*>/i,`<meta name="description" content="${htmlEscape(description)}">`)
+    .replace(/<meta\s+name=["']robots["'][^>]*>/i,'')
+    .replace(/<link\s+rel=["']canonical["'][^>]*>/i,'')
+    .replace('</head>',`${socialTags.join('\n    ')}\n  </head>`);
+  res.setHeader('Cache-Control','no-cache');
+  if(robots.startsWith('noindex'))res.setHeader('X-Robots-Tag','noindex, nofollow');
+  res.status(200).type('html').send(html);
+}
+
+app.get('/robots.txt',(req,res)=>{
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${SITE_ORIGIN}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml',(req,res)=>{
+  const urls=[`${SITE_ORIGIN}/`,`${SITE_ORIGIN}/menu`];
+  const categories=db.prepare(`
+    SELECT c.id,c.name FROM menu_categories c
+    JOIN menu_items m ON m.category=c.name COLLATE NOCASE AND m.active=1
+    GROUP BY c.id,c.name ORDER BY c.id
+  `).all();
+  categories.forEach(category=>urls.push(`${SITE_ORIGIN}/menu/category/${category.id}/${slugify(category.name)}`));
+  const products=db.prepare('SELECT id,name FROM menu_items WHERE active=1 ORDER BY id').all();
+  products.forEach(product=>urls.push(`${SITE_ORIGIN}/product/${product.id}/${slugify(product.name)}`));
+  const urlSet=urls.map(url=>`  <url><loc>${xmlEscape(url)}</loc></url>`).join('\n');
+  res.set('Cache-Control','public, max-age=3600').type('application/xml')
+    .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlSet}\n</urlset>\n`);
+});
+
+app.get(['/','/menu'],(req,res)=>{
+  if(req.path==='/menu/')return res.redirect(301,'/menu');
+  const isMenu=req.path==='/menu';
+  sendSeoPage(req,res,{
+    title:isMenu?'Hash Food Menu | Order Burgers, Broast & More':'Hash Food | Karachi’s legendary taste, delivered hot',
+    description:isMenu
+      ?'Explore the Hash Food menu in Karachi. Browse current dishes, descriptions and prices, and order online.'
+      :'Big flavour, freshly made in Karachi. Explore the Hash Food menu and order burgers, broast, fries and more.',
+    pathname:isMenu?'/menu':'/',
+  });
+});
+app.get('/menu/category/:categoryId/:slug',(req,res)=>{
+  const categoryId=Number(req.params.categoryId);
+  const category=db.prepare(`
+    SELECT c.id,c.name FROM menu_categories c
+    JOIN menu_items m ON m.category=c.name COLLATE NOCASE AND m.active=1
+    WHERE c.id=? GROUP BY c.id,c.name
+  `).get(categoryId);
+  if(!category)return res.status(404).set('X-Robots-Tag','noindex, nofollow').type('text/plain').send('Category not found');
+  const pathname=`/menu/category/${category.id}/${slugify(category.name)}`;
+  if(req.path!==pathname)return res.redirect(301,pathname);
+  sendSeoPage(req,res,{
+    title:`${category.name} Menu | Hash Food Karachi`,
+    description:`Explore ${category.name} at Hash Food in Karachi. See current dishes, descriptions and prices, and order online.`,
+    pathname,
+  });
+});
+app.get('/product/:id/:slug',(req,res)=>{
+  const id=Number(req.params.id);
+  const product=db.prepare(`
+    SELECT m.id,m.name,m.category,c.id AS categoryId,m.description,m.price,m.image,m.popular
+    FROM menu_items m LEFT JOIN menu_categories c ON c.name=m.category COLLATE NOCASE
+    WHERE m.id=? AND m.active=1
+  `).get(id);
+  if(!product)return res.status(404).set('X-Robots-Tag','noindex, nofollow').type('text/plain').send('Menu item not found');
+  const pathname=`/product/${product.id}/${slugify(product.name)}`;
+  if(req.path!==pathname)return res.redirect(301,pathname);
+  sendSeoPage(req,res,{
+    title:`${product.name} | Hash Food`,
+    description:`${product.description} Order ${product.name} from Hash Food in Karachi.`,
+    pathname,
+    image:product.image,
+    ogType:'product',
+    product,
+  });
+});
+app.get(['/checkout','/track','/track/:id','/admin','/admin/login'],(req,res)=>{
+  if(req.path.endsWith('/'))return res.redirect(301,req.path.slice(0,-1));
+  const routeInfo={
+    '/checkout':['Checkout | Hash Food','/checkout'],
+    '/track':['Order tracking | Hash Food','/track'],
+    '/admin':['Admin dashboard | Hash Food','/admin'],
+    '/admin/login':['Admin login | Hash Food','/admin/login'],
+  };
+  const [title,pathname]=req.path.startsWith('/track/')?['Order tracking | Hash Food',req.path]:routeInfo[req.path];
+  sendSeoPage(req,res,{
+    title,
+    description:'Hash Food customer and account information.',
+    pathname,
+    robots:'noindex,nofollow',
+  });
+});
+
 app.use(express.static(CLIENT_DIST, {
+  index: false,
   setHeaders(res, filePath) {
     const fileName = path.basename(filePath);
     if (fileName === 'index.html') {
@@ -386,12 +535,10 @@ app.use(express.static(CLIENT_DIST, {
     }
   }
 }));
-app.get(/^(?!\/api(?:\/|$)).*/, (req,res,next)=>{
-  res.sendFile(path.join(CLIENT_DIST, 'index.html'), (error) => {
-    if (error) next(error);
-  });
+app.use((req,res)=>{
+  if(req.path==='/api'||req.path.startsWith('/api/'))return res.status(404).json({error:'Not found'});
+  res.set('X-Robots-Tag','noindex, nofollow').status(404).type('text/plain').send('Page not found');
 });
-app.use((req,res)=>res.status(404).json({error:'Not found'}));
 app.use((err,req,res,next)=>{if(err instanceof SyntaxError&&'body' in err)return res.status(400).json({error:'Invalid JSON'});console.error(err.message);res.status(500).json({error:'Server error'});});
 
 if(require.main===module){app.listen(PORT,HOST,()=>console.log(`Hash Food server listening on http://${HOST}:${PORT}`));}

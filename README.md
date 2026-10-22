@@ -52,6 +52,10 @@ npm start
 
 Express serves the optimized client from `client/dist`. The frontend and API share the same origin on port 3002.
 
+## Public SEO routes
+
+The public storefront is available at `/`, `/menu`, `/menu/category/:categoryId/:slug`, and `/product/:id/:slug`. Product and category pages are generated from active menu items in SQLite; old slugs redirect to their current canonical URL. Express serves route-specific metadata and structured product data, plus `/sitemap.xml` and `/robots.txt`. Checkout, tracking, and admin pages are noindex and are not included in the sitemap.
+
 ## Render deployment
 
 - **Build command:** `npm run build`
