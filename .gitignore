@@ -1,0 +1,10 @@
+node_modules/
+client/node_modules/
+client/dist/
+dist/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*
+!.env.example

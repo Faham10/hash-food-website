@@ -1,0 +1,26 @@
+{
+  "name": "hash-food-secure-ordering",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Hash Food storefront, order tracking, REST API and secure admin dashboard",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js",
+    "client:install": "npm --prefix client install",
+    "client:build": "npm --prefix client run build",
+    "build": "npm run client:install && npm run client:build"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.11.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}
