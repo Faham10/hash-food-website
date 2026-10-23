@@ -7,7 +7,7 @@ export default function SiteFooter() {
   return (
     <footer className="site-footer" id="contact">
       <div className="footer-top">
-        <div className="footer-brand"><Link className="brand" to="/"><span className="brand-mark">HF</span><span className="brand-name">HASH<span>FOOD</span></span></Link><p>Big flavour. No compromise.<br />Made to satisfy the fire in you.</p></div>
+        <div className="footer-brand"><Link className="brand" to="/"><span className="brand-mark"><img src="/hash-food-mark.png" alt="" /></span><span className="brand-name">HASH<span>FOOD</span></span></Link><p>Big flavour. No compromise.<br />Made to satisfy the fire in you.</p></div>
         <div><span className="eyebrow">Come hungry</span><p className="footer-detail"><MapPin size={16} />{settings.address}</p>
           <p className="footer-detail"><Phone size={16} /><a href={`tel:+92${settings.phone.replace(/\D/g, '').replace(/^0/, '')}`} aria-label={`Call ${settings.phone}`}>{settings.phone}</a></p>
         </div>

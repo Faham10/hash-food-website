@@ -1,4 +1,4 @@
-import { ShoppingBag, Utensils } from 'lucide-react';
+import { ShoppingBag } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppState.jsx';
@@ -103,7 +103,7 @@ export default function Navbar() {
       <header className="site-header">
         <div className="site-header-inner">
           <Link className="brand" to="/" aria-label="Hash Food home">
-            <span className="brand-mark"><Utensils size={19} strokeWidth={2.8} /></span>
+            <span className="brand-mark"><img src="/hash-food-mark.png" alt="" /></span>
             <span className="brand-lockup"><span className="brand-name">HASH <span>FOOD</span></span><small>Karachi legend</small></span>
           </Link>
           <nav className="main-nav" aria-label="Main navigation">

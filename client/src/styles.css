@@ -1021,7 +1021,7 @@ h1, h2, h3, .font-display, .brand-name, .eyebrow, .hero-kicker, .admin-badge {
     font: 10px/1.45 Arial, sans-serif;
   }
   .receipt-heading { text-align: center; }
-  .receipt-brand-mark { width: 27px; height: 27px; display: grid; place-items: center; margin: 0 auto 5px; border: 1px solid #111; border-radius: 50%; font-size: 11px; font-weight: 800; }
+  .receipt-brand-logo { width: 20mm; height: 18mm; display: block; margin: 0 auto 2mm; object-fit: contain; }
   .receipt-heading h1 { margin: 0 0 3px; font-size: 20px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
   .receipt-heading p { margin: 2px 0; font-size: 9px; }
   .receipt-heading .receipt-address { font-size: 8px; }
@@ -3903,4 +3903,17 @@ h1, h2, h3, .font-display, .brand-name, .eyebrow, .admin-badge { font-family: "P
   .menu-category-manager-heading .button { flex: 0 0 auto; }
   .menu-category-chip { min-width: min(100%, 130px); flex: 1 1 130px; }
   .category-editor { padding: 18px; }
+}
+
+.brand-mark { display: grid; place-items: center; overflow: visible; border: 0; background: transparent; box-shadow: none; }
+.brand-mark img { width: 100%; height: 100%; display: block; border-radius: 0; object-fit: contain; object-position: center; }
+.site-header-inner .brand-mark { width: 46px; height: 46px; flex: 0 0 46px; }
+@media (max-width: 700px) {
+  .site-header-inner .brand-mark { width: 40px; height: 40px; flex-basis: 40px; }
+}
+@media (max-width: 390px) {
+  .site-header-inner .brand-mark { width: 36px; height: 36px; flex-basis: 36px; }
+}
+@media (max-width: 340px) {
+  .site-header-inner .brand-mark { width: 33px; height: 33px; flex-basis: 33px; }
 }

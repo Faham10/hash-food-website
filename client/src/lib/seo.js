@@ -41,12 +41,12 @@ export function useSeo({ title, description, canonical, image, type = 'website',
     setMeta('property', 'og:title', title);
     setMeta('property', 'og:description', description);
     setMeta('property', 'og:url', canonical);
-    setMeta('property', 'og:image', image || `${window.location.origin}/hash-food-icon.svg`);
+    setMeta('property', 'og:image', image || `${window.location.origin}/hash-food-mark.png`);
     setMeta('property', 'og:image:alt', title);
     setMeta('name', 'twitter:card', 'summary_large_image');
     setMeta('name', 'twitter:title', title);
     setMeta('name', 'twitter:description', description);
-    setMeta('name', 'twitter:image', image || `${window.location.origin}/hash-food-icon.svg`);
+    setMeta('name', 'twitter:image', image || `${window.location.origin}/hash-food-mark.png`);
 
     let canonicalLink = document.head.querySelector('link[rel="canonical"]');
     if (!canonicalLink) {

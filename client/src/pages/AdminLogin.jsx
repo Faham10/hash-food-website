@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowLeft, Flame, LockKeyhole } from 'lucide-react';
+import { ArrowLeft, LockKeyhole } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api, jsonBody } from '../lib/api.js';
@@ -43,7 +43,7 @@ export default function AdminLogin() {
     <PageMotion className="admin-login-page">
       <Link to="/" className="admin-login-back"><ArrowLeft size={16} /> Back to the storefront</Link>
       <div className="admin-login-card panel-glass">
-        <div className="admin-login-brand"><span className="brand-mark"><Flame size={20} fill="currentColor" /></span><span className="brand-name">HASH<span>FOOD</span></span></div>
+        <div className="admin-login-brand"><span className="brand-mark"><img src="/hash-food-mark.png" alt="" /></span><span className="brand-name">HASH<span>FOOD</span></span></div>
         <span className="eyebrow"><LockKeyhole size={14} /> PRIVATE ACCESS</span>
         <h1>THE CONTROL<br /><span>ROOM.</span></h1>
         <p>Keep the kitchen moving. Sign in to manage today's orders and your menu.</p>
