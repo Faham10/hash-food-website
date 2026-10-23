@@ -414,10 +414,9 @@ h1, h2, h3, p { margin-top: 0; }
 .status-select-wrap > svg { margin-left: 5px; color: #89858d; pointer-events: none; }
 .status-select-wrap select option, .mobile-order-card select option { color: #fff; background: #15141a; }
 .order-status-actions { display: inline-flex; align-items: center; gap: 9px; }
-.order-row-actions { display: flex; align-items: center; justify-content: center; gap: 9px; }
-.orders-desktop .admin-table th:last-child,
-.orders-desktop .admin-table td:last-child { text-align: center; }
-.receipt-print-button { min-height: 34px; padding: 0 12px; border-color: #eadb9f; color: #755500; background: #fff9e8; }
+.orders-desktop .admin-table th.order-action-heading,
+.orders-desktop .admin-table td.order-action-cell { width: 86px; text-align: center; }
+.receipt-print-button { min-height: 38px; padding: 0 14px; border-color: #eadb9f; color: #755500; background: #fff9e8; font-size: 12px; }
 .receipt-print-button:hover:not(:disabled) { border-color: #dfbf43; background: #fff3c4; }
 .mobile-order-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .receipt-print-root { display: none; }
