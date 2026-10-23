@@ -220,19 +220,48 @@ function closeOrderStatusStreams(orderId){
   orderStatusStreams.delete(orderId);
 }
 
-function sameOrigin(req,res,next){
-  if (['GET','HEAD','OPTIONS'].includes(req.method)) return next();
-  const origin=req.get('origin');
+
+function sameOrigin(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+
+  const origin = req.get('origin');
   if (!origin) return next();
-  try { if (new URL(origin).host===req.get('host')) return next(); } catch {}
-  return res.status(403).json({error:'Invalid request origin'});
+
+  try {
+    const requestOrigin = new URL(origin).origin;
+    const ownOrigin = `${req.protocol}://${req.get('host')}`;
+    const frontendOrigin = process.env.FRONTEND_ORIGIN;
+
+    if (
+      requestOrigin === ownOrigin ||
+      (frontendOrigin &&
+        requestOrigin === new URL(frontendOrigin).origin)
+    ) {
+      return next();
+    }
+  } catch {}
+
+  return res.status(403).json({ error: 'Invalid request origin' });
 }
-function requireAdmin(req,res,next){
-  const raw=req.cookies.hf_admin;
-  if(!raw)return res.status(401).json({error:'Authentication required'});
-  const session=db.prepare('SELECT admin_id FROM sessions WHERE token_hash=? AND expires_at>?').get(sha256(raw),Date.now());
-  if(!session){res.clearCookie('hf_admin');return res.status(401).json({error:'Session expired'});}
-  req.adminId=session.admin_id;next();
+function requireAdmin(req, res, next) {
+  const raw = req.cookies.hf_admin;
+  if (!raw) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const session = db.prepare(
+    'SELECT admin_id FROM sessions WHERE token_hash=? AND expires_at>?'
+  ).get(sha256(raw), Date.now());
+
+  if (!session) {
+    res.clearCookie('hf_admin');
+    return res.status(401).json({ error: 'Session expired' });
+  }
+
+  req.adminId = session.admin_id;
+  next();
 }
 function menuPayload(row){return {...row,popular:Boolean(row.popular),active:Boolean(row.active)};}
 
