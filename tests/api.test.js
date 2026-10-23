@@ -202,10 +202,20 @@ test('customer order and protected admin lifecycle',async()=>{
   assert.equal(emptyCategory.status,201);
   assert.equal((await fetch(`${base}/api/admin/menu/categories/${(await emptyCategory.json()).id}`,{method:'DELETE',headers:{cookie}})).status,200);
 
-  const newItem={name:'Test Special',category:newCategory.name,description:'Integration test item.',price:725,image:'https://example.com/test.jpg',popular:true,active:true};
+  const newItem={name:'Test Special',category:newCategory.name,description:'Integration test item.',price:725,options:{label:'Size',items:[{name:'Small',price:500},{name:'Large',price:1000}]},image:'https://example.com/test.jpg',popular:true,active:true};
   const added=await fetch(`${base}/api/admin/menu`,{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify(newItem)});
   assert.equal(added.status,201);
   const item=await added.json();
+  assert.deepEqual((await (await fetch(`${base}/api/menu`)).json()).find(product=>product.id===item.id).options,newItem.options);
+  const invalidOptionOrder=await fetch(`${base}/api/orders`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({customerName:'Test Customer',phone:'03005556666',address:'Korangi No. 4, Karachi',orderType:'Pick-Up',paymentMethod:'Cash',items:[{id:item.id,qty:1,option:'XL'}]})});
+  assert.equal(invalidOptionOrder.status,400);
+  const optionOrderResponse=await fetch(`${base}/api/orders`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({customerName:'Test Customer',phone:'03005556666',address:'Korangi No. 4, Karachi',orderType:'Pick-Up',paymentMethod:'Cash',items:[{id:item.id,qty:2,option:'Large',price:1}]})});
+  assert.equal(optionOrderResponse.status,201);
+  const optionOrder=await optionOrderResponse.json();
+  assert.equal(optionOrder.total,2000);
+  const optionTracked=await (await fetch(`${base}/api/orders/${optionOrder.orderId}`,{headers:{'x-order-token':optionOrder.trackingToken}})).json();
+  assert.deepEqual(optionTracked.items,[{name:'Test Special (Large)',price:1000,quantity:2}]);
+  for(const status of ['Accepted','Preparing','Ready for Pickup','Completed'])assert.equal((await updateStatus(optionOrder.orderId,status)).status,200);
   const categories=await (await fetch(`${base}/api/admin/menu/categories`,{headers:{cookie}})).json();
   assert.equal(categories.find(category=>category.id===newCategory.id).itemCount,1);
   assert.equal((await fetch(`${base}/api/admin/menu/categories/${newCategory.id}`,{method:'DELETE',headers:{cookie}})).status,409);
@@ -246,7 +256,7 @@ test('customer order and protected admin lifecycle',async()=>{
   assert.equal((await updateStatus(cancelledOrder.orderId,'Accepted')).status,409);
   const cleared=await fetch(`${base}/api/admin/orders/completed`,{method:'DELETE',headers:{cookie}});
   assert.equal(cleared.status,200);
-  assert.equal((await cleared.json()).deleted,4);
+  assert.equal((await cleared.json()).deleted,5);
   assert.equal((await fetch(`${base}/api/orders/${created.orderId}`,{headers:{'x-order-token':created.trackingToken}})).status,404);
 
   assert.equal((await fetch(`${base}/api/admin/logout`,{method:'POST',headers:{cookie}})).status,200);

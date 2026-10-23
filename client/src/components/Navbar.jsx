@@ -132,11 +132,6 @@ export default function Navbar() {
           </div>
         </div>
       </header>
-      {location.pathname !== '/checkout' && (
-        <button className="mobile-cart-bar" onClick={() => setCartOpen(true)} aria-label={`View cart, ${cartCount} items`}>
-          <span><ShoppingBag size={18} /> View your bag</span><b>{cartCount} {cartCount === 1 ? 'item' : 'items'}</b>
-        </button>
-      )}
     </>
   );
 }

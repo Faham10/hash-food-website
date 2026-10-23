@@ -67,6 +67,7 @@ db.exec(`
     category TEXT NOT NULL,
     description TEXT NOT NULL,
     price INTEGER NOT NULL CHECK(price > 0),
+    options_json TEXT NOT NULL DEFAULT '{}',
     image TEXT NOT NULL,
     popular INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
@@ -105,6 +106,9 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `);
+if (!db.prepare('PRAGMA table_info(menu_items)').all().some(column => column.name === 'options_json')) {
+  db.exec("ALTER TABLE menu_items ADD COLUMN options_json TEXT NOT NULL DEFAULT '{}'");
+}
 
 const ordersTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='orders'").get().sql;
 if (!ordersTableSql.includes('CHECK(status IN')) {
@@ -263,11 +267,19 @@ function requireAdmin(req, res, next) {
   req.adminId = session.admin_id;
   next();
 }
-function menuPayload(row){return {...row,popular:Boolean(row.popular),active:Boolean(row.active)};}
+function menuPayload(row){
+  let options=null;
+  try{
+    const parsed=JSON.parse(row.options_json||'{}');
+    if(typeof parsed.label==='string'&&Array.isArray(parsed.items))options=parsed;
+  }catch{}
+  const {options_json,...item}=row;
+  return {...item,options,popular:Boolean(row.popular),active:Boolean(row.active)};
+}
 
 app.get('/api/health',(req,res)=>res.json({ok:true}));
 app.get('/api/menu',(req,res)=>res.json(db.prepare(`
-  SELECT m.id,m.name,m.category,c.id AS categoryId,m.description,m.price,m.image,m.popular,m.active
+  SELECT m.id,m.name,m.category,c.id AS categoryId,m.description,m.price,m.options_json,m.image,m.popular,m.active
   FROM menu_items m LEFT JOIN menu_categories c ON c.name=m.category COLLATE NOCASE
   WHERE m.active=1 ORDER BY m.id
 `).all().map(menuPayload)));
@@ -289,17 +301,37 @@ app.post('/api/orders',sameOrigin,orderNetworkLimit,orderLimit,(req,res)=>{
   const customerName=clean(req.body?.customerName,80),phone=clean(req.body?.phone,20),altPhone=clean(req.body?.altPhone,20),address=clean(req.body?.address,300),instructions=clean(req.body?.instructions,300);
   const orderType=clean(req.body?.orderType,20),paymentMethod=clean(req.body?.paymentMethod,20),items=Array.isArray(req.body?.items)?req.body.items:[];
   if(customerName.length<2||!validPhone(phone)||address.length<5||!['Delivery','Pick-Up','Dine-In'].includes(orderType)||paymentMethod!=='Cash'||!items.length||items.length>30)return res.status(400).json({error:'Please provide valid order details'});
-  const quantities=new Map();
-  for(const item of items){const id=Number(item.id),qty=Number(item.qty);if(!Number.isInteger(id)||!Number.isInteger(qty)||qty<1||qty>20)return res.status(400).json({error:'Invalid order item'});quantities.set(id,(quantities.get(id)||0)+qty);}
-  const ids=[...quantities.keys()];const placeholders=ids.map(()=>'?').join(',');
-  const menu=db.prepare(`SELECT id,name,price FROM menu_items WHERE active=1 AND id IN (${placeholders})`).all(...ids);
+  const requestedItems=[];
+  for(const item of items){
+    const id=Number(item.id),qty=Number(item.qty);
+    if(!Number.isInteger(id)||!Number.isInteger(qty)||qty<1||qty>20||(item.option!==undefined&&typeof item.option!=='string'))return res.status(400).json({error:'Invalid order item'});
+    requestedItems.push({id,qty,option:item.option});
+  }
+  const ids=[...new Set(requestedItems.map(item=>item.id))];const placeholders=ids.map(()=>'?').join(',');
+  const menu=db.prepare(`SELECT id,name,price,options_json FROM menu_items WHERE active=1 AND id IN (${placeholders})`).all(...ids);
   if(menu.length!==ids.length)return res.status(400).json({error:'One or more menu items are unavailable'});
-  const subtotal=menu.reduce((sum,item)=>sum+item.price*quantities.get(item.id),0);const deliveryFee=orderType==='Delivery'?150:0;const total=subtotal+deliveryFee;
+  const menuById=new Map(menu.map(item=>[item.id,item]));
+  const orderItems=[];
+  for(const request of requestedItems){
+    const product=menuById.get(request.id);
+    let options;
+    try{options=JSON.parse(product.options_json||'{}');}catch{options={};}
+    const choices=Array.isArray(options.items)?options.items:[];
+    if(choices.length){
+      const choice=choices.find(option=>option.name===request.option);
+      if(!choice)return res.status(400).json({error:`Choose a valid option for ${product.name}`});
+      orderItems.push({id:product.id,name:`${product.name} (${choice.name})`,price:choice.price,quantity:request.qty});
+    }else{
+      if(request.option!==undefined)return res.status(400).json({error:`${product.name} does not have selectable options`});
+      orderItems.push({id:product.id,name:product.name,price:product.price,quantity:request.qty});
+    }
+  }
+  const subtotal=orderItems.reduce((sum,item)=>sum+item.price*item.quantity,0);const deliveryFee=orderType==='Delivery'?150:0;const total=subtotal+deliveryFee;
   const publicId=`HF${Date.now().toString(36).toUpperCase().slice(-6)}${crypto.randomInt(10,99)}`;const trackingToken=token(18);
   const create=db.transaction(()=>{
     const result=db.prepare(`INSERT INTO orders(public_id,tracking_hash,customer_name,phone,alt_phone,address,order_type,instructions,payment_method,subtotal,delivery_fee,total,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(publicId,sha256(trackingToken),customerName,phone,altPhone||null,address,orderType,instructions||null,paymentMethod,subtotal,deliveryFee,total,'Pending');
     const insertItem=db.prepare('INSERT INTO order_items(order_id,menu_item_id,name,price,quantity) VALUES(?,?,?,?,?)');
-    menu.forEach(item=>insertItem.run(result.lastInsertRowid,item.id,item.name,item.price,quantities.get(item.id)));
+    orderItems.forEach(item=>insertItem.run(result.lastInsertRowid,item.id,item.name,item.price,item.quantity));
   });
   create();res.status(201).json({orderId:publicId,trackingToken,status:'Pending',subtotal,deliveryFee,total});
 });
@@ -395,10 +427,48 @@ app.delete('/api/admin/menu/categories/:id',sameOrigin,requireAdmin,(req,res)=>{
   db.prepare('DELETE FROM menu_categories WHERE id=?').run(id);
   res.json({ok:true});
 });
-app.get('/api/admin/menu',requireAdmin,(req,res)=>res.json(db.prepare('SELECT id,name,category,description,price,image,popular,active FROM menu_items ORDER BY id').all().map(menuPayload)));
-function validateMenu(body){const item={name:clean(body?.name,100),category:clean(body?.category,40),description:clean(body?.description,300),price:Number(body?.price),image:clean(body?.image,500),popular:Boolean(body?.popular),active:body?.active!==false};if(item.name.length<2||item.category.length<2||item.description.length<3||!Number.isInteger(item.price)||item.price<1||item.price>100000||!validImageUrl(item.image))return null;return item;}
-app.post('/api/admin/menu',sameOrigin,requireAdmin,(req,res)=>{const item=validateMenu(req.body);if(!item)return res.status(400).json({error:'Invalid menu item'});const create=db.transaction(()=>{db.prepare('INSERT OR IGNORE INTO menu_categories(name) VALUES(?)').run(item.category);return db.prepare('INSERT INTO menu_items(name,category,description,price,image,popular,active) VALUES(?,?,?,?,?,?,?)').run(item.name,item.category,item.description,item.price,item.image,Number(item.popular),Number(item.active));});const r=create();res.status(201).json({id:Number(r.lastInsertRowid),...item});});
-app.put('/api/admin/menu/:id',sameOrigin,requireAdmin,(req,res)=>{const item=validateMenu(req.body);if(!item)return res.status(400).json({error:'Invalid menu item'});const update=db.transaction(()=>{const r=db.prepare('UPDATE menu_items SET name=?,category=?,description=?,price=?,image=?,popular=?,active=? WHERE id=?').run(item.name,item.category,item.description,item.price,item.image,Number(item.popular),Number(item.active),Number(req.params.id));if(r.changes)db.prepare('INSERT OR IGNORE INTO menu_categories(name) VALUES(?)').run(item.category);return r;});const r=update();if(!r.changes)return res.status(404).json({error:'Menu item not found'});res.json({id:Number(req.params.id),...item});});
+app.get('/api/admin/menu',requireAdmin,(req,res)=>res.json(db.prepare('SELECT id,name,category,description,price,options_json,image,popular,active FROM menu_items ORDER BY id').all().map(menuPayload)));
+function validateMenu(body){
+  const item={name:clean(body?.name,100),category:clean(body?.category,40),description:clean(body?.description,300),price:Number(body?.price),image:clean(body?.image,500),popular:Boolean(body?.popular),active:body?.active!==false,options:null};
+  const options=body?.options;
+  if(options!==undefined&&options!==null){
+    if(typeof options!=='object'||Array.isArray(options))return null;
+    const label=clean(options.label,40);
+    if(label.length<2||!Array.isArray(options.items)||options.items.length<2||options.items.length>12)return null;
+    const names=new Set(),optionItems=[];
+    for(const option of options.items){
+      const name=clean(option?.name,40),price=Number(option?.price);
+      if(name.length<1||names.has(name.toLowerCase())||!Number.isInteger(price)||price<1||price>100000)return null;
+      names.add(name.toLowerCase());
+      optionItems.push({name,price});
+    }
+    item.options={label,items:optionItems};
+  }
+  if(item.name.length<2||item.category.length<2||item.description.length<3||!Number.isInteger(item.price)||item.price<1||item.price>100000||!validImageUrl(item.image))return null;
+  return item;
+}
+app.post('/api/admin/menu',sameOrigin,requireAdmin,(req,res)=>{
+  const item=validateMenu(req.body);
+  if(!item)return res.status(400).json({error:'Invalid menu item'});
+  const create=db.transaction(()=>{
+    db.prepare('INSERT OR IGNORE INTO menu_categories(name) VALUES(?)').run(item.category);
+    return db.prepare('INSERT INTO menu_items(name,category,description,price,options_json,image,popular,active) VALUES(?,?,?,?,?,?,?,?)').run(item.name,item.category,item.description,item.price,JSON.stringify(item.options||{}),item.image,Number(item.popular),Number(item.active));
+  });
+  const result=create();
+  res.status(201).json({id:Number(result.lastInsertRowid),...item});
+});
+app.put('/api/admin/menu/:id',sameOrigin,requireAdmin,(req,res)=>{
+  const item=validateMenu(req.body);
+  if(!item)return res.status(400).json({error:'Invalid menu item'});
+  const update=db.transaction(()=>{
+    const result=db.prepare('UPDATE menu_items SET name=?,category=?,description=?,price=?,options_json=?,image=?,popular=?,active=? WHERE id=?').run(item.name,item.category,item.description,item.price,JSON.stringify(item.options||{}),item.image,Number(item.popular),Number(item.active),Number(req.params.id));
+    if(result.changes)db.prepare('INSERT OR IGNORE INTO menu_categories(name) VALUES(?)').run(item.category);
+    return result;
+  });
+  const result=update();
+  if(!result.changes)return res.status(404).json({error:'Menu item not found'});
+  res.json({id:Number(req.params.id),...item});
+});
 app.delete('/api/admin/menu/:id',sameOrigin,requireAdmin,(req,res)=>{const r=db.prepare('UPDATE menu_items SET active=0 WHERE id=?').run(Number(req.params.id));if(!r.changes)return res.status(404).json({error:'Menu item not found'});res.json({ok:true});});
 app.delete('/api/admin/menu/:id/permanent',sameOrigin,requireAdmin,(req,res)=>{
   const id=Number(req.params.id);

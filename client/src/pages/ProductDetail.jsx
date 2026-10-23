@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, ShoppingBag } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PageMotion from '../components/PageMotion.jsx';
+import ProductOptionPicker from '../components/ProductOptionPicker.jsx';
 import { useApp } from '../state/AppState.jsx';
 import { api, formatMoney } from '../lib/api.js';
 import { categoryPath, productPath, Seo, slugify } from '../lib/seo.js';
@@ -16,10 +17,13 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [quantity, setQuantity] = useState(1);
+  const [selectedOption, setSelectedOption] = useState('');
   const product = menu.find((item) => String(item.id) === id && slugify(item.name) === slug);
   const category = product && { id: product.categoryId, name: product.category };
   const related = product ? menu.filter((item) => item.categoryId === product.categoryId && item.id !== product.id).slice(0, 3) : [];
   const canonical = product ? `${SITE_ORIGIN}${productPath(product)}` : `${SITE_ORIGIN}/product/${id}/${slug}`;
+  const selectedChoice = product?.options?.items?.find((option) => option.name === selectedOption);
+  const currentPrice = selectedChoice?.price ?? product?.price ?? 0;
 
   useEffect(() => {
     let mounted = true;
@@ -34,6 +38,10 @@ export default function ProductDetail() {
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, [toast]);
+
+  useEffect(() => {
+    setSelectedOption(product?.options?.items?.[0]?.name || '');
+  }, [product?.id]);
 
   if (loading) {
     return <PageMotion><main className="storefront-main product-detail-page"><p className="product-detail-message">Loading menu item…</p></main></PageMotion>;
@@ -67,15 +75,16 @@ export default function ProductDetail() {
             <Link className="product-detail-category" to={categoryPath(category)}>{product.category}</Link>
             <h1>{product.name}</h1>
             <p>{product.description}</p>
-            <strong className="product-detail-price">{formatMoney(product.price)}</strong>
+            <ProductOptionPicker options={product.options} value={selectedOption} onChange={setSelectedOption} />
+            <strong className="product-detail-price">{formatMoney(currentPrice)}</strong>
             <div className="product-detail-order">
               <div className="product-quick-view-quantity" aria-label={`Quantity: ${quantity}`}>
                 <button type="button" onClick={() => setQuantity((current) => Math.max(1, current - 1))} aria-label="Decrease quantity"><span aria-hidden="true">−</span></button>
                 <span>{quantity}</span>
                 <button type="button" onClick={() => setQuantity((current) => Math.min(20, current + 1))} disabled={quantity >= 20} aria-label="Increase quantity"><span aria-hidden="true">+</span></button>
               </div>
-              <button className="button button-primary" type="button" onClick={() => { addToCart(product, quantity); setCartOpen(true); }}>
-                <ShoppingBag size={17} /> Add to cart <span aria-hidden="true">|</span> {formatMoney(product.price * quantity)}
+              <button className="button button-primary" type="button" disabled={Boolean(product.options?.items?.length && !selectedChoice)} onClick={() => { addToCart(product, quantity, selectedChoice?.name || null); setCartOpen(true); }}>
+                <ShoppingBag size={17} /> Add to cart <span aria-hidden="true">|</span> {formatMoney(currentPrice * quantity)}
               </button>
             </div>
             <Link className="product-back-link" to={categoryPath(category)}><ArrowLeft size={16} /> More {product.category}</Link>

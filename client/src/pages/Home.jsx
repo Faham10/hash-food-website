@@ -5,6 +5,7 @@ import { Link, useLocation, useParams } from 'react-router-dom';
 import { api, formatMoney } from '../lib/api.js';
 import { useApp } from '../state/AppState.jsx';
 import PageMotion from '../components/PageMotion.jsx';
+import ProductOptionPicker from '../components/ProductOptionPicker.jsx';
 import SiteFooter from '../components/SiteFooter.jsx';
 import { categoryPath, productPath, Seo } from '../lib/seo.js';
 
@@ -12,6 +13,9 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1568901346375-23c9450c
 const SITE_ORIGIN = 'https://hash-food-website.onrender.com';
 
 function ProductCard({ product, index, addToCart, quantity, onOpen }) {
+  const startingPrice = product.options?.items?.length
+    ? Math.min(...product.options.items.map((option) => option.price))
+    : product.price;
   return (
     <motion.article className="product-card" role="button" tabIndex={0} aria-label={`View ${product.name} details`} onClick={(event) => {
       if (!event.target.closest('button')) onOpen(product);
@@ -30,8 +34,10 @@ function ProductCard({ product, index, addToCart, quantity, onOpen }) {
         <div className="product-title-row"><h3><Link className="product-title-button" to={productPath(product)} onClick={(event) => event.stopPropagation()}>{product.name}</Link></h3></div>
         <p>{product.description}</p>
         <div className="product-action-row">
-          <div className="product-price"><span>Price</span><strong>{formatMoney(product.price)}</strong></div>
-          {quantity > 0
+          <div className="product-price"><span>{product.options?.items?.length ? 'From' : 'Price'}</span><strong>{formatMoney(startingPrice)}</strong></div>
+          {product.options?.items?.length
+            ? <Link className="add-button" to={productPath(product)} aria-label={`Choose an option for ${product.name}`} onClick={(event) => event.stopPropagation()}>Add to cart <span>+</span></Link>
+            : quantity > 0
             ? <div className="mini-quantity" aria-label={`${quantity} in cart`}><span>{quantity} in bag</span><button onClick={() => addToCart(product)} aria-label={`Add another ${product.name}`}>+</button></div>
             : <button className="add-button" onClick={() => addToCart(product)}>Add to cart <span>+</span></button>}
         </div>
@@ -42,10 +48,14 @@ function ProductCard({ product, index, addToCart, quantity, onOpen }) {
 
 function ProductQuickView({ product, onClose, onAdd }) {
   const [quantity, setQuantity] = useState(1);
+  const [selectedOption, setSelectedOption] = useState('');
+  const selectedChoice = product?.options?.items?.find((option) => option.name === selectedOption);
+  const currentPrice = selectedChoice?.price ?? product?.price ?? 0;
 
   useEffect(() => {
     if (!product) return undefined;
     setQuantity(1);
+    setSelectedOption(product.options?.items?.[0]?.name || '');
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') onClose();
     };
@@ -71,7 +81,8 @@ function ProductQuickView({ product, onClose, onAdd }) {
                 <span className="product-quick-view-category">{product.category}</span>
                 <button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X /></button>
               </div>
-              <strong className="product-quick-view-price">{formatMoney(product.price)}</strong>
+              <strong className="product-quick-view-price">{formatMoney(currentPrice)}</strong>
+              <ProductOptionPicker options={product.options} value={selectedOption} onChange={setSelectedOption} />
               <div className="product-quick-view-description-block">
                 <h3>About this item</h3>
                 <p className="product-quick-view-description">{product.description || 'Freshly prepared with quality ingredients, just for you.'}</p>
@@ -83,7 +94,7 @@ function ProductQuickView({ product, onClose, onAdd }) {
                   <span>{quantity}</span>
                   <button type="button" onClick={() => setQuantity((current) => Math.min(20, current + 1))} disabled={quantity >= 20} aria-label="Increase quantity"><span aria-hidden="true">+</span></button>
                 </div>
-                <button className="button button-primary" type="button" onClick={() => onAdd(product, quantity)}>{formatMoney(product.price * quantity)} <span aria-hidden="true">|</span> Add to cart <ArrowRight size={17} /></button>
+                <button className="button button-primary" type="button" disabled={Boolean(product.options?.items?.length && !selectedChoice)} onClick={() => onAdd(product, quantity, selectedChoice?.name || null)}>{formatMoney(currentPrice * quantity)} <span aria-hidden="true">|</span> Add to cart <ArrowRight size={17} /></button>
               </div>
             </div>
           </motion.section>
@@ -135,7 +146,8 @@ export default function Home() {
   const heroProduct = featured[heroIndex];
   const heroSecondProduct = featured.length > 1 ? featured[(heroIndex + 1) % featured.length] : null;
   const filtered = menu.filter((item) => (!routeCategoryId || String(item.categoryId) === routeCategoryId) && `${item.name} ${item.category} ${item.description}`.toLowerCase().includes(search.trim().toLowerCase()));
-  const cartQuantities = new Map(cart.map((item) => [item.id, item.qty]));
+  const cartQuantities = new Map();
+  cart.forEach((item) => cartQuantities.set(item.id, (cartQuantities.get(item.id) || 0) + item.qty));
 
   useEffect(() => {
     if (featured.length < 2 || reduceMotion) return undefined;
@@ -263,7 +275,7 @@ export default function Home() {
         </section>}
       </div>
       <SiteFooter />
-      <ProductQuickView product={selectedProduct} onClose={() => setSelectedProduct(null)} onAdd={(product, quantity) => { addToCart(product, quantity); setSelectedProduct(null); setCartOpen(true); }} />
+      <ProductQuickView product={selectedProduct} onClose={() => setSelectedProduct(null)} onAdd={(product, quantity, option) => { addToCart(product, quantity, option); setSelectedProduct(null); setCartOpen(true); }} />
     </PageMotion>
   );
 }

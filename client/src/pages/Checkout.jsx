@@ -61,8 +61,12 @@ export default function Checkout() {
     };
   }, [placed?.orderId, placed?.trackingToken]);
 
-  const lines = useMemo(() => cart.map((entry) => ({ ...entry, product: menu.find((item) => item.id === entry.id) })).filter((item) => item.product), [cart, menu]);
-  const subtotal = lines.reduce((sum, item) => sum + item.product.price * item.qty, 0);
+  const lines = useMemo(() => cart.map((entry) => {
+    const product = menu.find((item) => item.id === entry.id);
+    const choice = entry.option ? product?.options?.items?.find((item) => item.name === entry.option) : null;
+    return { ...entry, product, choice, unitPrice: choice?.price ?? (!entry.option ? product?.price : undefined) };
+  }).filter((item) => item.product && item.unitPrice !== undefined), [cart, menu]);
+  const subtotal = lines.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
   const deliveryFee = orderType === 'Delivery' && settings.deliveryAvailable !== 'false' ? 150 : 0;
 
   function updateForm(event) {
@@ -91,7 +95,7 @@ export default function Checkout() {
           ...form,
           orderType,
           paymentMethod: 'Cash',
-          items: cart.map(({ id, qty }) => ({ id, qty })),
+          items: cart.map(({ id, qty, option }) => ({ id, qty, ...(option ? { option } : {}) })),
         }),
       });
       const placedOrder = {
@@ -103,7 +107,7 @@ export default function Checkout() {
         orderType,
         paymentMethod: 'Cash',
         createdAt: new Date().toISOString(),
-        items: lines.map(({ qty, product }) => ({ name: product.name, price: product.price, quantity: qty })),
+        items: lines.map(({ qty, product, option, unitPrice }) => ({ name: option ? `${product.name} (${option})` : product.name, price: unitPrice, quantity: qty })),
       };
       saveOrderTracking(result.orderId, result.trackingToken, placedOrder);
       clearCart();
@@ -152,7 +156,7 @@ export default function Checkout() {
           <div className="payment-note"><span className="cash-icon">Rs</span><div><b>{orderType === 'Delivery' ? 'Cash on delivery' : 'Cash payment'}</b><small>Pay {orderType === 'Delivery' ? 'when your order arrives' : 'when your order is ready'}.</small></div><span className="secure-check"><Check size={15} /></span></div>
           <aside className="checkout-summary panel-glass">
             <div className="summary-title"><div><span className="eyebrow">ORDER SUMMARY</span><h2>Bill breakdown</h2></div><span className="summary-count">{cart.reduce((n, item) => n + item.qty, 0)} items</span></div>
-            {!lines.length ? <div className="empty-state"><p>Your bag is empty or still loading.</p><Link to="/" className="text-link">Add something delicious →</Link></div> : lines.map(({ id, qty, product }) => <div className="summary-line" key={id}><span><b>{qty}×</b> {product.name}</span><strong>{formatMoney(product.price * qty)}</strong></div>)}
+            {!lines.length ? <div className="empty-state"><p>Your bag is empty or still loading.</p><Link to="/" className="text-link">Add something delicious →</Link></div> : lines.map(({ lineId, id, qty, product, option, unitPrice }) => <div className="summary-line" key={lineId || id}><span><b>{qty}×</b> {product.name}{option ? ` (${option})` : ''}</span><strong>{formatMoney(unitPrice * qty)}</strong></div>)}
             <div className="summary-divider" /><div className="price-row"><span>Subtotal</span><b>{formatMoney(subtotal)}</b></div>
             <div className="price-row"><span>Delivery charges</span><b>{deliveryFee ? formatMoney(deliveryFee) : 'Free'}</b></div>
             <div className="price-row total-row"><span>Total amount · Cash</span><b>{formatMoney(subtotal + deliveryFee)}</b></div>

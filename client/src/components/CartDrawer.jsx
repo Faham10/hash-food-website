@@ -1,23 +1,30 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Calculator, Minus, Plus, ShoppingBag, Sparkles, Trash2, Truck, X, ZoomIn } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { ArrowRight, Calculator, Flame, Minus, Plus, ShoppingBag, Trash2, Truck, X, ZoomIn } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { api, formatMoney } from '../lib/api.js';
+import { productPath } from '../lib/seo.js';
 import { useApp } from '../state/AppState.jsx';
 
 export default function CartDrawer() {
   const { cart, cartCount, cartOpen, setCartOpen, setQuantity, orderType, setOrderType, settings, toast, addToCart } = useApp();
+  const { pathname } = useLocation();
   const [menu, setMenu] = useState([]);
   const [loading, setLoading] = useState(false);
   const [zoomedProduct, setZoomedProduct] = useState(null);
+  const menuRequestStarted = useRef(false);
   useEffect(() => {
-    if (!cartOpen) return;
+    if ((!cartOpen && cartCount === 0) || menu.length > 0 || menuRequestStarted.current) return;
+    menuRequestStarted.current = true;
     setLoading(true);
     api('/api/menu')
       .then(setMenu)
-      .catch((error) => toast(error.message, 'error'))
+      .catch((error) => {
+        menuRequestStarted.current = false;
+        toast(error.message, 'error');
+      })
       .finally(() => setLoading(false));
-  }, [cartOpen, toast]);
+  }, [cartOpen, cartCount, menu.length, toast]);
   useEffect(() => {
     if (settings.deliveryAvailable === 'false' && orderType === 'Delivery') setOrderType('Pick-Up');
   }, [settings.deliveryAvailable, orderType, setOrderType]);
@@ -41,15 +48,18 @@ export default function CartDrawer() {
     };
   }, [cartOpen, setCartOpen, zoomedProduct]);
 
-  const lines = useMemo(() => cart.map((entry) => ({ ...entry, product: menu.find((item) => item.id === entry.id) })).filter((item) => item.product), [cart, menu]);
+  const lines = useMemo(() => cart.map((entry) => {
+    const product = menu.find((item) => item.id === entry.id);
+    const choice = entry.option ? product?.options?.items?.find((item) => item.name === entry.option) : null;
+    return { ...entry, product, choice, unitPrice: choice?.price ?? (!entry.option ? product?.price : undefined) };
+  }).filter((item) => item.product && item.unitPrice !== undefined), [cart, menu]);
   const recommendations = useMemo(() => {
     const cartIds = new Set(cart.map((item) => item.id));
     return menu
-      .filter((item) => !cartIds.has(item.id))
-      .sort((a, b) => Number(b.popular) - Number(a.popular))
-      .slice(0, 3);
+      .filter((item) => item.popular && !cartIds.has(item.id))
+      .slice(0, 6);
   }, [cart, menu]);
-  const subtotal = lines.reduce((sum, item) => sum + item.product.price * item.qty, 0);
+  const subtotal = lines.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
   const deliveryFee = orderType === 'Delivery' && settings.deliveryAvailable !== 'false' ? 150 : 0;
   const estimatedDelivery = new Date(Date.now() + 50 * 60 * 1000);
   const deliveryDay = estimatedDelivery.getDate();
@@ -59,6 +69,25 @@ export default function CartDrawer() {
 
   return (
     <AnimatePresence>
+      {!cartOpen && cartCount > 0 && pathname !== '/checkout' && (
+        <motion.button
+          className="floating-cart-bar"
+          type="button"
+          onClick={() => setCartOpen(true)}
+          aria-label={`View cart, ${cartCount} ${cartCount === 1 ? 'item' : 'items'}, total ${formatMoney(subtotal)}`}
+          initial={{ opacity: 0, x: '-50%', y: 80, scale: 0.94 }}
+          animate={{ opacity: 1, x: '-50%', y: 0, scale: 1 }}
+          exit={{ opacity: 0, x: '-50%', y: 80, scale: 0.94 }}
+          transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+          whileHover={{ y: -3, scale: 1.015 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <span className="floating-cart-count">{cartCount}</span>
+          <span className="floating-cart-label">View Cart</span>
+          <span className="floating-cart-total">{lines.length ? formatMoney(subtotal) : '...'}</span>
+          <ArrowRight className="floating-cart-arrow" size={23} />
+        </motion.button>
+      )}
       {cartOpen && (
         <div className="drawer-layer">
           <motion.button className="drawer-backdrop" aria-label="Close cart" onClick={() => setCartOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
@@ -73,16 +102,31 @@ export default function CartDrawer() {
                 <div className="empty-state"><ShoppingBag size={32} /><h3>Your bag is waiting</h3><p>Add a favourite and make it a meal.</p><button className="button button-outline" onClick={() => setCartOpen(false)}>Explore menu</button></div>
               )}
               {!loading && cart.length > lines.length && <p className="inline-note">Some items are no longer on the menu. Remove them to continue.</p>}
-              {lines.map(({ id, qty, product }) => (
-                <article className="cart-line" key={id}>
+              {lines.map(({ id, lineId, option, qty, product, unitPrice }) => (
+                <article className="cart-line" key={lineId || id}>
                   <button className="cart-line-image-button" type="button" onClick={() => setZoomedProduct(product)} aria-label={`Zoom ${product.name} image`}><img src={product.image} alt={product.name} onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=180&q=70'; }} /><span><ZoomIn size={15} /></span></button>
-                  <div className="cart-line-info"><div className="row-between"><h3>{product.name}</h3><button className="bare-button danger-text" onClick={() => setQuantity(id, 0)} aria-label={`Remove ${product.name}`}><Trash2 size={15} /></button></div><p>{formatMoney(product.price)}</p><div className="stepper"><button aria-label={`Decrease ${product.name}`} onClick={() => setQuantity(id, qty - 1)}><Minus size={13} /></button><span>{qty}</span><button aria-label={`Increase ${product.name}`} onClick={() => setQuantity(id, qty + 1)} disabled={qty >= 20}><Plus size={13} /></button></div></div>
-                  <strong className="cart-line-total">{formatMoney(product.price * qty)}</strong>
+                  <div className="cart-line-info">
+                    <h3>{product.name}</h3>
+                    <div className="cart-line-meta">{option && <span className="cart-line-option">{option}</span>}<strong>{formatMoney(unitPrice)}</strong></div>
+                  </div>
+                  <div className="cart-line-controls">
+                    <button className="bare-button danger-text" onClick={() => setQuantity(lineId || `${id}:${encodeURIComponent(option || '')}`, 0)} aria-label={`Remove ${product.name}${option ? ` (${option})` : ''}`}><Trash2 size={15} /></button>
+                    <div className="stepper" aria-label={`${product.name}${option ? ` ${option}` : ''} quantity`}>
+                      <button aria-label={`Decrease ${product.name}${option ? ` ${option}` : ''}`} onClick={() => setQuantity(lineId || `${id}:${encodeURIComponent(option || '')}`, qty - 1)}><Minus size={13} /></button>
+                      <span>{qty}</span>
+                      <button aria-label={`Increase ${product.name}${option ? ` ${option}` : ''}`} onClick={() => setQuantity(lineId || `${id}:${encodeURIComponent(option || '')}`, qty + 1)} disabled={qty >= 20}><Plus size={13} /></button>
+                    </div>
+                  </div>
                 </article>
               ))}
+              {!loading && lines.length > 0 && (
+                <Link className="cart-add-more" to="/menu" onClick={() => setCartOpen(false)}>
+                  <Plus size={18} /> Add more items
+                </Link>
+              )}
               {!loading && recommendations.length > 0 && (
                 <section className="cart-recommendations" aria-labelledby="cart-recommendations-title">
-                  <div className="cart-recommendations-heading"><div><span><Sparkles size={14} /> PAIR IT WITH</span><h3 id="cart-recommendations-title">You might also like</h3></div></div>
+                  <div className="cart-recommendations-heading"><div><span><Flame size={15} /> HANDPICKED FAVOURITES</span><h3 id="cart-recommendations-title">Popular with your order</h3></div></div>
                   <div className="cart-recommendation-list">
                     {recommendations.map((product) => (
                       <article className="cart-recommendation" key={product.id}>
@@ -90,8 +134,10 @@ export default function CartDrawer() {
                           <img src={product.image} alt="" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=180&q=70'; }} />
                           <span><ZoomIn size={14} /></span>
                         </button>
-                        <div className="cart-recommendation-info"><h4>{product.name}</h4><span>{formatMoney(product.price)}</span></div>
-                        <button type="button" className="cart-recommendation-add" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><Plus size={16} /><span>Add</span></button>
+                        <div className="cart-recommendation-info"><h4>{product.name}</h4><span>{product.options?.items?.length ? `From ${formatMoney(Math.min(...product.options.items.map((option) => option.price)))}` : formatMoney(product.price)}</span></div>
+                        {product.options?.items?.length
+                          ? <Link className="cart-recommendation-add" to={productPath(product)} onClick={() => setCartOpen(false)} aria-label={`Choose options for ${product.name}`}><Plus size={16} /></Link>
+                          : <button type="button" className="cart-recommendation-add" onClick={() => addToCart(product)} aria-label={`Add ${product.name} to cart`}><Plus size={16} /></button>}
                       </article>
                     ))}
                   </div>

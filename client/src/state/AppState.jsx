@@ -16,7 +16,10 @@ const defaultSettings = {
 function readCart() {
   try {
     const parsed = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.filter((item) => Number.isInteger(item.id) && Number.isInteger(item.qty) && item.qty > 0 && item.qty <= 20) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => Number.isInteger(item.id) && Number.isInteger(item.qty) && item.qty > 0 && item.qty <= 20)
+        .map((item) => ({ ...item, lineId: item.lineId || `${item.id}:${encodeURIComponent(item.option || '')}` }))
+      : [];
   } catch {
     return [];
   }
@@ -41,22 +44,25 @@ export function AppProvider({ children }) {
     window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 4000);
   }, []);
 
-  const addToCart = useCallback((product, quantity = 1) => {
+  const addToCart = useCallback((product, quantity = 1, option = null) => {
+    const lineId = `${product.id}:${encodeURIComponent(option || '')}`;
     setCart((items) => {
-      const current = items.find((item) => item.id === product.id);
+      const current = items.find((item) => (item.lineId || `${item.id}:${encodeURIComponent(item.option || '')}`) === lineId);
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 20 || (current?.qty || 0) + quantity > 20) {
         toast('Maximum quantity is 20 per item.');
         return items;
       }
-      toast(`${product.name}${quantity > 1 ? ` × ${quantity}` : ''} added to your cart.`, 'success');
+      toast(`${product.name}${option ? ` (${option})` : ''}${quantity > 1 ? ` × ${quantity}` : ''} added to your cart.`, 'success');
       return current
-        ? items.map((item) => item.id === product.id ? { ...item, qty: item.qty + quantity } : item)
-        : [...items, { id: product.id, qty: quantity }];
+        ? items.map((item) => (item.lineId || `${item.id}:${encodeURIComponent(item.option || '')}`) === lineId ? { ...item, qty: item.qty + quantity } : item)
+        : [...items, { id: product.id, qty: quantity, option, lineId }];
     });
   }, [toast]);
 
-  const setQuantity = useCallback((id, qty) => {
-    setCart((items) => qty <= 0 ? items.filter((item) => item.id !== id) : items.map((item) => item.id === id ? { ...item, qty: Math.min(20, qty) } : item));
+  const setQuantity = useCallback((lineId, qty) => {
+    setCart((items) => qty <= 0
+      ? items.filter((item) => (item.lineId || `${item.id}:${encodeURIComponent(item.option || '')}`) !== lineId)
+      : items.map((item) => (item.lineId || `${item.id}:${encodeURIComponent(item.option || '')}`) === lineId ? { ...item, qty: Math.min(20, qty) } : item));
   }, []);
 
   const clearCart = useCallback(() => setCart([]), []);
