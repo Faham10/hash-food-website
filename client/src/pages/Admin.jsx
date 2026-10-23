@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Activity, ArrowDownUp, ArrowLeft, Check, ChevronDown, CircleDollarSign, Clock3, Eye, EyeOff, Flame, LayoutDashboard, LogOut, Menu, PackageCheck, Pencil, Plus, Save, Settings as SettingsIcon, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Activity, ArrowDownUp, ArrowLeft, Check, ChevronDown, CircleDollarSign, Clock3, Eye, EyeOff, Flame, LayoutDashboard, LogOut, Menu, PackageCheck, Pencil, Plus, Printer, Save, Settings as SettingsIcon, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { api, formatMoney, jsonBody, ORDER_STATUSES } from '../lib/api.js';
@@ -14,7 +14,7 @@ const tabs = [
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 const blankMenu = { name: '', category: '', description: '', price: '', image: '', popular: false, active: true, options: null };
-const baseSettings = { name: 'Hash Food', phone: '0300 1234567', address: 'Korangi No. 4, Kallu Chowk, Karachi', opening: '12:00 PM', closing: '2:00 AM', acceptOrders: 'true', deliveryAvailable: 'true' };
+const baseSettings = { name: 'Hash Food', phone: '03142049022', address: 'Korangi No. 4, Kallu Chowk, Karachi', opening: '6:00 PM', closing: '3:00 AM', acceptOrders: 'true', deliveryAvailable: 'true' };
 
 function useAdminSession() {
   const [session, setSession] = useState('checking');
@@ -36,13 +36,67 @@ function OrderDetail({ order, onClose }) {
   return <AnimatePresence>{order && <div className="modal-layer"><motion.button className="modal-backdrop" aria-label="Close order detail" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} /><motion.section className="detail-modal panel-glass" role="dialog" aria-modal="true" aria-labelledby="detail-title" initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}><div className="modal-heading"><div><span className="eyebrow">ORDER DETAILS</span><h2 id="detail-title">{order.id}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close"><X /></button></div><div className="detail-customer"><b>{order.customer}</b><span>{order.phone}</span><span>{order.address}</span><small>{order.type} · {order.paymentMethod} · {new Date(`${order.time}Z`).toLocaleString()}</small></div><div className="detail-items">{order.items.map((item, index) => <div className="summary-line" key={`${item.name}-${index}`}><span><b>{item.qty}×</b> {item.name}</span><strong>{formatMoney(item.price * item.qty)}</strong></div>)}</div><div className="price-row"><span>Subtotal</span><b>{formatMoney(order.subtotal)}</b></div><div className="price-row"><span>Delivery</span><b>{order.deliveryFee ? formatMoney(order.deliveryFee) : 'Free'}</b></div><div className="price-row total-row"><span>Total</span><b>{formatMoney(order.total)}</b></div>{order.instructions && <div className="detail-instructions"><span className="eyebrow">CUSTOMER NOTE</span><p>{order.instructions}</p></div>}</motion.section></div>}</AnimatePresence>;
 }
 
-function OrdersPanel({ orders, onRefresh, onStatusChanged, toast }) {
+function ReceiptPrint({ order, settings }) {
+  if (!order) return null;
+  return <div className="receipt-print-root" aria-hidden="true">
+    <header className="receipt-heading">
+      <span className="receipt-brand-mark">HF</span>
+      <h1>{settings.name || 'Hash Food'}</h1>
+      <p className="receipt-address">{settings.address || 'Korangi No. 4, Kallu Chowk, Karachi'}</p>
+      <p>Tel: {settings.phone || '03142049022'}</p>
+    </header>
+    <div className="receipt-rule" />
+    <div className="receipt-meta">
+      <b>ORDER RECEIPT</b>
+      <div><span>Order no.</span><strong>{order.id}</strong></div>
+      <div><span>Date</span><strong>{new Date(`${order.time}Z`).toLocaleString()}</strong></div>
+      <div><span>Order type</span><strong>{order.type}</strong></div>
+      <div><span>Payment</span><strong>{order.paymentMethod}</strong></div>
+      <div><span>Status</span><strong>{order.status}</strong></div>
+    </div>
+    <div className="receipt-rule" />
+    <section className="receipt-customer">
+      <b>CUSTOMER DETAILS</b>
+      <strong>{order.customer}</strong>
+      <span>Contact: {order.phone}</span>
+      <span>Address: {order.address}</span>
+      {order.instructions && <span>Order note: {order.instructions}</span>}
+    </section>
+    <div className="receipt-rule" />
+    <div className="receipt-items">
+      <div className="receipt-item receipt-item-heading"><b>Item</b><b>Qty</b><b>Price</b><b>Amount</b></div>
+      {order.items.map((item, index) => <div className="receipt-item" key={`${item.name}-${index}`}>
+        <span>{item.name}</span><span>{item.qty}</span><span>{formatMoney(item.price)}</span><span>{formatMoney(item.price * item.qty)}</span>
+      </div>)}
+    </div>
+    <div className="receipt-rule" />
+    <div className="receipt-total-line"><span>Subtotal</span><b>{formatMoney(order.subtotal)}</b></div>
+    <div className="receipt-total-line"><span>Delivery fee</span><b>{order.deliveryFee ? formatMoney(order.deliveryFee) : 'Free'}</b></div>
+    <div className="receipt-total-line receipt-grand-total"><span>Grand total</span><b>{formatMoney(order.total)}</b></div>
+    <p className="receipt-thanks">Thank you for choosing {settings.name || 'Hash Food'}!</p>
+    <p className="receipt-footer-contact">For help, call {settings.phone || '03142049022'}</p>
+  </div>;
+}
+
+function OrdersPanel({ orders, onRefresh, onStatusChanged, toast, settings }) {
   const [filter, setFilter] = useState('All');
   const [selected, setSelected] = useState(null);
+  const [printOrder, setPrintOrder] = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [search, setSearch] = useState('');
   const filtered = orders.filter((order) => (filter === 'All' || order.status === filter) && `${order.id} ${order.customer} ${order.phone}`.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    if (!printOrder) return undefined;
+    const handleAfterPrint = () => setPrintOrder(null);
+    window.addEventListener('afterprint', handleAfterPrint);
+    const timer = window.setTimeout(() => window.print(), 100);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [printOrder]);
 
   async function changeStatus(orderId, status) {
     try {
@@ -72,11 +126,12 @@ function OrdersPanel({ orders, onRefresh, onStatusChanged, toast }) {
     <div className="admin-content-heading"><div><span className="eyebrow">YOUR KITCHEN, LIVE</span><h2>ORDER <span>BOARD</span></h2></div><button className="button button-outline" onClick={() => setConfirmClear(true)}><Trash2 size={15} /> Clear completed</button></div>
     <div className="admin-filter-bar"><div className="status-filters"><button className={filter === 'All' ? 'active' : ''} onClick={() => setFilter('All')}>All <b>{orders.length}</b></button>{ORDER_STATUSES.map((status) => <button key={status} className={filter === status ? 'active' : ''} onClick={() => setFilter(status)}>{status}</button>)}</div><input className="admin-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order or customer" aria-label="Search orders" /></div>
     {!filtered.length ? <div className="admin-empty panel-glass"><PackageCheck size={29} /><h3>No orders in this view</h3><p>New orders will appear here automatically.</p></div> : <>
-      <div className="orders-desktop panel-glass"><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Order</th><th>Customer</th><th>Type</th><th>Total</th><th>Status</th><th>View</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.id}><td><button className="table-order-id" onClick={() => setSelected(order)}>{order.id}</button><small>{new Date(`${order.time}Z`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td><b>{order.customer}</b><small>{order.phone}</small></td><td>{order.type}</td><td><b>{formatMoney(order.total)}</b></td><td><label className="status-select-wrap"><OrderStatusBadge status={order.status} /><select aria-label={`Change status for ${order.id}`} value={order.status} onChange={(event) => changeStatus(order.id, event.target.value)}>{getAllowedOrderStatuses(order.type, order.status).map((status) => <option key={status} value={status}>{status}</option>)}</select><ChevronDown size={13} /></label></td><td><button className="icon-button small-icon-button" aria-label={`View ${order.id}`} onClick={() => setSelected(order)}><Eye size={16} /></button></td></tr>)}</tbody></table></div></div>
-      <div className="orders-mobile">{filtered.map((order) => <article className="mobile-order-card panel-glass" key={order.id}><div className="row-between"><button className="table-order-id" onClick={() => setSelected(order)}>{order.id}</button><OrderStatusBadge status={order.status} /></div><b>{order.customer}</b><span>{order.phone} · {order.type}</span><div className="row-between"><strong>{formatMoney(order.total)}</strong><button className="button button-outline small-button" onClick={() => setSelected(order)}>Details</button></div><select value={order.status} aria-label={`Change status for ${order.id}`} onChange={(event) => changeStatus(order.id, event.target.value)}>{getAllowedOrderStatuses(order.type, order.status).map((status) => <option key={status} value={status}>{status}</option>)}</select></article>)}</div>
+      <div className="orders-desktop panel-glass"><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Order</th><th>Customer</th><th>Type</th><th>Total</th><th>Status</th><th className="order-actions-heading">View / Print</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.id}><td><button className="table-order-id" onClick={() => setSelected(order)}>{order.id}</button><small>{new Date(`${order.time}Z`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></td><td><b>{order.customer}</b><small>{order.phone}</small></td><td>{order.type}</td><td><b>{formatMoney(order.total)}</b></td><td><label className="status-select-wrap"><OrderStatusBadge status={order.status} /><select aria-label={`Change status for ${order.id}`} value={order.status} onChange={(event) => changeStatus(order.id, event.target.value)}>{getAllowedOrderStatuses(order.type, order.status).map((status) => <option key={status} value={status}>{status}</option>)}</select><ChevronDown size={13} /></label></td><td><div className="order-row-actions"><button className="icon-button small-icon-button" aria-label={`View ${order.id}`} onClick={() => setSelected(order)}><Eye size={16} /></button><button className="button button-outline small-button receipt-print-button" aria-label={`Print receipt for ${order.id}`} onClick={() => setPrintOrder(order)}><Printer size={14} /> Print</button></div></td></tr>)}</tbody></table></div></div>
+      <div className="orders-mobile">{filtered.map((order) => <article className="mobile-order-card panel-glass" key={order.id}><div className="row-between"><button className="table-order-id" onClick={() => setSelected(order)}>{order.id}</button><OrderStatusBadge status={order.status} /></div><b>{order.customer}</b><span>{order.phone} · {order.type}</span><div className="mobile-order-actions"><strong>{formatMoney(order.total)}</strong><button className="button button-outline small-button" onClick={() => setSelected(order)}><Eye size={14} /> Details</button><button className="button button-outline small-button receipt-print-button" aria-label={`Print receipt for ${order.id}`} onClick={() => setPrintOrder(order)}><Printer size={14} /> Print</button></div><select value={order.status} aria-label={`Change status for ${order.id}`} onChange={(event) => changeStatus(order.id, event.target.value)}>{getAllowedOrderStatuses(order.type, order.status).map((status) => <option key={status} value={status}>{status}</option>)}</select></article>)}</div>
     </>}
     <ConfirmDialog open={confirmClear} title="Clear completed orders?" confirmLabel="Delete orders" onCancel={() => setConfirmClear(false)} onConfirm={clearCompleted} busy={clearing}><p>This permanently deletes all <b>Delivered</b>, <b>Completed</b>, and <b>Cancelled</b> orders. This action cannot be undone.</p></ConfirmDialog>
     <OrderDetail order={selected} onClose={() => setSelected(null)} />
+    <ReceiptPrint order={printOrder} settings={settings} />
   </section>;
 }
 
@@ -266,7 +321,7 @@ function SettingsPanel({ toast }) {
 
 function AdminShell() {
   const navigate = useNavigate();
-  const { toast } = useApp();
+  const { toast, settings } = useApp();
   const [tab, setTab] = useState('orders');
   const [orders, setOrders] = useState([]);
   const [menu, setMenu] = useState([]);
@@ -339,7 +394,7 @@ function AdminShell() {
     <div className="admin-main-area"><header className="admin-topbar"><button className="icon-button mobile-menu-button" onClick={() => setMobileMenu((open) => !open)} aria-label="Open navigation"><Menu /></button><div><span className="eyebrow">{new Date().toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' })}</span><h1>{pageTitle} <span>OVERVIEW</span></h1></div><div className="admin-topbar-right"><span className="topbar-live"><span className="live-pulse" /> LIVE</span><span className="admin-avatar">HF</span></div></header>
       <div className="admin-stats"><article className="admin-stat-card panel-glass"><span><PackageCheck size={17} /> Active orders</span><b>{orders.filter((order) => !['Delivered', 'Completed', 'Cancelled'].includes(order.status)).length}</b><small>{pending} need attention</small></article><article className="admin-stat-card panel-glass"><span><CircleDollarSign size={17} /> Order value</span><b>{formatMoney(sales)}</b><small>Across current orders</small></article><article className="admin-stat-card panel-glass"><span><UtensilsCrossed size={17} /> Menu items</span><b>{menu.filter((item) => item.active).length}</b><small>{menu.length} total in studio</small></article><article className="admin-stat-card panel-glass"><span><Activity size={17} /> Store status</span><b className="stat-live">LIVE</b><small>Auto-refresh every 20 sec</small></article></div>
       <div className="admin-tab-mobile">{tabs.map(({ id, label, icon: Icon }) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}><Icon size={16} />{label}</button>)}</div>
-      {loading ? <div className="admin-empty admin-loading panel-glass"><span className="loading-orbit" /><p>Loading your control room…</p></div> : tab === 'orders' ? <OrdersPanel orders={orders} onRefresh={() => refresh(true)} onStatusChanged={updateOrderStatus} toast={toast} /> : tab === 'menu' ? <MenuPanel menu={menu} categories={categories} onRefresh={() => refresh(true)} toast={toast} /> : <SettingsPanel toast={toast} />}
+      {loading ? <div className="admin-empty admin-loading panel-glass"><span className="loading-orbit" /><p>Loading your control room…</p></div> : tab === 'orders' ? <OrdersPanel orders={orders} onRefresh={() => refresh(true)} onStatusChanged={updateOrderStatus} toast={toast} settings={settings} /> : tab === 'menu' ? <MenuPanel menu={menu} categories={categories} onRefresh={() => refresh(true)} toast={toast} /> : <SettingsPanel toast={toast} />}
       <footer className="admin-footer"><span>HASH FOOD · KORANGI</span><span><ArrowDownUp size={13} /> Orders sync live from your database</span></footer>
     </div>
     {mobileMenu && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setMobileMenu(false)} />}

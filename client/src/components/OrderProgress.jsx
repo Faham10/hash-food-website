@@ -23,7 +23,7 @@ export default function OrderProgress({ order, lastUpdated, showTrackLink = fals
   const stages = getOrderStatusFlow(order.orderType).map((status) => ({ status, ...stageDetails[status] }));
   const statusIndex = stages.findIndex((stage) => stage.status === order.status);
   const statusTone = getStatusClass(order.status);
-  const supportPhone = settings.phone || '0300 1234567';
+  const supportPhone = settings.phone || '03142049022';
   const supportTel = supportPhone.replace(/[^\d+]/g, '');
   const cancelled = order.status === 'Cancelled';
   const isLive = !isOrderComplete(order.status) && !cancelled;

@@ -5,10 +5,10 @@ const AppContext = createContext(null);
 const CART_KEY = 'hash-food-cart';
 const defaultSettings = {
   name: 'Hash Food',
-  phone: '0300 1234567',
+  phone: '03142049022',
   address: 'Korangi No. 4, Kallu Chowk, Karachi',
-  opening: '12:00 PM',
-  closing: '2:00 AM',
+  opening: '6:00 PM',
+  closing: '3:00 AM',
   acceptOrders: 'true',
   deliveryAvailable: 'true',
 };
